@@ -1,6 +1,7 @@
 import torch
 import itertools
 import os, sys
+import numpy as np
 from matplotlib import pyplot
 from PIL import ImageDraw
 from collections import Counter
@@ -165,6 +166,72 @@ def train():
     pyplot.savefig(os.path.join(OUT_DIR, "train_val_acc.png"))
     pyplot.show()
 
+def test_model():
+    """test the classification accuracy"""
+    model = MyModel().to(device)
+    model.load_state_dict(load_tensor(os.path.join(OUT_DIR, "model.pt")))
+    model.eval()
+
+    n_classes = len(CLASSES) - 1   # others are omitted
+    confmat = np.zeros((n_classes, n_classes), dtype=int)
+
+    test_images_file = open(os.path.join(OUT_DIR, "test_images.txt"))
+    for image_path in test_images_file.readlines():
+        image_path = image_path.strip()
+        image_name = os.path.basename(image_path)
+        real_cls = image_name.split('.')[0]
+        predicted_cls = -1
+
+        if not image_path:
+            continue
+        with Image.open(image_path) as img_original: # 加载原始图片
+            img = resize_image(img_original) # 缩放图片
+            tensor_in = image_to_tensor(img)
+            # 预测输出
+        cls_result = model(tensor_in.unsqueeze(0).to(device))[-1][0]
+        if cls_result == None:
+            print(f"Cannot detect face in image {image_name}, skip.")
+            continue
+        # 合并重叠的结果区域, 结果是 [ [标签列表, 合并后的区域], ... ]
+        final_result = []
+        for label, box in cls_result:
+            for index in range(len(final_result)):
+                exists_labels, exists_box = final_result[index]
+                if calc_iou(box, exists_box) > IOU_MERGE_THRESHOLD:
+                    exists_labels.append(label)
+                    final_result[index] = (exists_labels, merge_box(box, exists_box))
+                    break
+            else:
+                final_result.append(([label], box))
+        # 合并标签 (重叠区域的标签中数量最多的分类为最终分类)
+        for index in range(len(final_result)):
+            labels, box = final_result[index]
+            final_label = Counter(labels).most_common(1)[0][0]
+            final_result[index] = (final_label, box)
+
+        for label, box in final_result:
+            predicted_cls = CLASSES[label]
+            if predicted_cls == real_cls:
+                break   
+        print(real_cls, predicted_cls)
+        confmat[int(real_cls)-1, int(predicted_cls)-1] += 1
+    test_images_file.close()
+
+    test_metrics_file = os.path.join(OUT_DIR, "test_metrics.rpt")
+    with open(test_metrics_file, 'a+') as f:
+        print("Confusion Matrix:", file=f)
+        print(confmat, file=f)
+        print("Confusion Matrix:")
+        print(confmat)
+
+        test_num = np.sum(confmat)
+        correct_num = np.trace(confmat)
+        print(f"#Total Tests: {test_num}, #Correct Tests: {correct_num}", file=f)
+        print(f"ACC on test set: {correct_num/test_num}", file=f)
+        print(f"#Total Tests: {test_num}, #Correct Tests: {correct_num}")
+        print(f"ACC on test set: {correct_num/test_num}")
+
+
 def eval_model():
     """使用训练好的模型"""
     # 创建模型实例，加载训练好的状态，然后切换到验证模式
@@ -224,7 +291,7 @@ def eval_model():
 def main():
     """主函数"""
     if len(sys.argv) < 2:
-        print(f"Please run: {sys.argv[0]} prepare|train|eval")
+        print(f"Please run: {sys.argv[0]} prepare|train|eval|test")
         exit()
 
     # 给随机数生成器分配一个初始值，使得每次运行都可以生成相同的随机数
@@ -242,6 +309,8 @@ def main():
         train()
     elif operation == "eval":
         eval_model()
+    elif operation == "test":
+        test_model()
     else:
         raise ValueError(f"Unsupported operation: {operation}")
 

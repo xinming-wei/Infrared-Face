@@ -5,15 +5,20 @@ from config import *
 from util import *
 from model import MyModel
 
-def prepare_save_batch(batch, image_tensors, image_boxes_labels):
+test_record = os.path.join(OUT_DIR, "test_images.txt")
+
+def prepare_save_batch(batch, image_tensors, image_boxes_labels, image_paths):
     """准备训练 - 保存单个批次的数据"""
     # 按索引值列表生成输入和输出 tensor 对象的函数
-    def split_dataset(indices):
+    def split_dataset(indices, mode="train"):
         image_in = []
         boxes_labels_out = {}
         for new_image_index, original_image_index in enumerate(indices.tolist()):
             image_in.append(image_tensors[original_image_index])
             boxes_labels_out[new_image_index] = image_boxes_labels[original_image_index]
+            if mode == "test":
+                with open(test_record, 'a+') as f:
+                    print(image_paths[original_image_index], file=f)
         tensor_image_in = torch.stack(image_in) # 维度: B,C,W,H
         return tensor_image_in, boxes_labels_out
 
@@ -24,8 +29,8 @@ def prepare_save_batch(batch, image_tensors, image_boxes_labels):
     testing_indices = random_indices[int(len(random_indices)*(TRAIN_VAL_TEST[0]+TRAIN_VAL_TEST[1])):]
 
     training_set = split_dataset(training_indices)
-    validating_set = split_dataset(validating_indices)
-    testing_set = split_dataset(testing_indices)
+    validating_set = split_dataset(validating_indices, mode="val")
+    testing_set = split_dataset(testing_indices, mode="test")
 
     # 保存到硬盘
     save_tensor(training_set, os.path.join(OUT_DIR, f"data/training_set.{batch}.pt"))
@@ -62,8 +67,11 @@ def prepare():
     batch = 0
     image_tensors = [] # 图片列表
     image_boxes_labels = {} # 图片对应的真实区域与分类列表，和候选区域与区域偏移
+    image_paths = []
     for filename, original_boxes_labels in box_map.items():
         image_path = os.path.join(IMAGE_DIR, filename)
+        image_paths.append(image_path)
+
         with Image.open(image_path) as img_original: # 加载原始图片
             sw, sh = img_original.size # 原始图片大小
             img = resize_image(img_original) # 缩放图片
@@ -127,10 +135,11 @@ def prepare():
             torch.tensor(actual_rpn_offsets_mask, dtype=torch.long))
         # 保存批次
         if len(image_tensors) >= BATCH_SIZE:
-            prepare_save_batch(batch, image_tensors, image_boxes_labels)
+            prepare_save_batch(batch, image_tensors, image_boxes_labels, image_paths)
             image_tensors.clear()
             image_boxes_labels.clear()
+            image_paths.clear()
             batch += 1
     # 保存剩余的批次
     if len(image_tensors) > 10:
-        prepare_save_batch(batch, image_tensors, image_boxes_labels)
+        prepare_save_batch(batch, image_tensors, image_boxes_labels, image_paths)
