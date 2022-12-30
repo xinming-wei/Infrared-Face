@@ -46,6 +46,10 @@ def train():
 
     # 计算正确率的工具函数
     calc_accuracy = MyModel.calc_accuracy
+    
+    if not os.path.isdir(OUT_DIR):
+        print("Error: You should run 'python main.py prepare' before training")
+        exit(1)
 
     def print_log(str):
         with open(os.path.join(OUT_DIR, "train.log"), 'a+') as f:
@@ -188,7 +192,7 @@ def test_model():
             img = resize_image(img_original) # 缩放图片
             tensor_in = image_to_tensor(img)
             # 预测输出
-        cls_result = model(tensor_in.unsqueeze(0).to(device))[-1][0]
+        cls_result = model(tensor_in.unsqueeze(0).to(device))[-2][0]
         if cls_result == None:
             print(f"Cannot detect face in image {image_name}, skip.")
             continue
@@ -252,7 +256,14 @@ def eval_model():
                 img_output = img_original.copy() # 复制图片，用于后面添加标记
                 tensor_in = image_to_tensor(img)
             # 预测输出
-            cls_result = model(tensor_in.unsqueeze(0).to(device))[-1][0]
+            cls_result = model(tensor_in.unsqueeze(0).to(device))[-2][0]
+            
+            # Feature vector shape: (32, 128) -> features of top 32 possible regions
+            face_feature = model(tensor_in.unsqueeze(0).to(device))[-1][0]
+            face_feature = torch.mean(face_feature, dim=0)
+            face_feature /= torch.sum(face_feature)
+            # print(face_feature.shape, face_feature, torch.sum(face_feature))
+            
             # 合并重叠的结果区域, 结果是 [ [标签列表, 合并后的区域], ... ]
             final_result = []
             for label, box in cls_result:

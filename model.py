@@ -92,11 +92,14 @@ class MyModel(nn.Module):
         # 根据区域截取特征后缩放到的大小
         self.pooling_size = 7
         # 根据区域特征判断分类的模型
-        self.cls_labels_model = nn.Sequential(
+        self.cls_labels_model1 = nn.Sequential(
             nn.Linear(self.features_channels * (self.pooling_size ** 2), 128),
-            nn.ReLU(),
+            nn.ReLU())
+        # Output intermediate feature vector
+        self.cls_labels_model2 = nn.Sequential(
             nn.Dropout(0.1),
-            nn.Linear(128, len(CLASSES)))
+            nn.Linear(128, len(CLASSES))
+        )
         # 根据区域特征再次生成区域偏移的模型，注意区域偏移会针对各个分类分别生成
         self.cls_offsets_model = nn.Sequential(
             nn.Linear(self.features_channels * (self.pooling_size ** 2), 128),
@@ -218,6 +221,7 @@ class MyModel(nn.Module):
         # ***** 判断分类部分 *****
         cls_output = []
         cls_result = []
+        face_vecs = []
         for index in range(0, cls_features.shape[0]):
             pooled = MyModel._roi_crop(
                 cls_features[index], rpn_candidates_batch[index], self.pooling_size)
@@ -227,7 +231,13 @@ class MyModel(nn.Module):
                 cls_result.append(None)
                 continue
             pooled = pooled.reshape(pooled.shape[0], -1)
-            labels = self.cls_labels_model(pooled)
+            # Feature vec outputed by intermediate layer before softmax 
+            _feature_vec = self.cls_labels_model1(pooled)
+            labels = self.cls_labels_model2(_feature_vec)
+            with torch.no_grad():
+                feature_vec = _feature_vec.clone()
+                face_vecs.append(feature_vec)
+            
             offsets = self.cls_offsets_model(pooled)
             cls_output.append((labels, offsets))
             # 使用 softmax 判断可能性最大的分类
@@ -245,14 +255,15 @@ class MyModel(nn.Module):
                 # 添加分类与最终预测区域
                 result.append((predicted_label, predicted_box))
             cls_result.append(result)
+            
 
         # 前面的项目用于学习，最后一项是最终输出结果
-        return rpn_labels, rpn_offsets, rpn_candidates_batch, cls_output, cls_result
+        return rpn_labels, rpn_offsets, rpn_candidates_batch, cls_output, cls_result, face_vecs
 
     @staticmethod
     def loss_function(predicted, actual):
         """Faster-RCNN 使用的多任务损失计算器"""
-        rpn_labels, rpn_offsets, rpn_candidates_batch, cls_output, _ = predicted
+        rpn_labels, rpn_offsets, rpn_candidates_batch, cls_output, _, __ = predicted
         rpn_labels_losses = []
         rpn_offsets_losses = []
         cls_labels_losses = []
@@ -315,7 +326,7 @@ class MyModel(nn.Module):
     @staticmethod
     def calc_accuracy(actual, predicted):
         """Faster-RCNN 使用的正确率计算器，这里只计算 RPN 与标签分类的正确率，区域偏移不计算"""
-        rpn_labels, rpn_offsets, rpn_candidates_batch, cls_output, cls_result = predicted
+        rpn_labels, rpn_offsets, rpn_candidates_batch, cls_output, cls_result, _ = predicted
         rpn_acc = 0
         cls_acc = 0
         for batch_index in range(len(actual)):
