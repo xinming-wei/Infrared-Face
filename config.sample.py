@@ -21,6 +21,8 @@ IOU_NEGATIVE_THRESHOLD = 0.10
 # 判断是否应该合并重叠区域的重叠率阈值
 IOU_MERGE_THRESHOLD = 0.35
 
+AUTHENTICATION_TRESHOLD=0.25
+#0.15,0.16,0.18,0.19, 0.2, 0.21
 # 用于启用 GPU 支持
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

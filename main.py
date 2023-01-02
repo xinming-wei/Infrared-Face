@@ -1,6 +1,6 @@
 import torch
 import itertools
-import os, sys
+import os, sys 
 import numpy as np
 from matplotlib import pyplot
 from PIL import ImageDraw
@@ -170,7 +170,7 @@ def train():
     pyplot.savefig(os.path.join(OUT_DIR, "train_val_acc.png"))
     pyplot.show()
 
-def test_model():
+def test_model_classifier():
     """test the classification accuracy"""
     model = MyModel().to(device)
     model.load_state_dict(load_tensor(os.path.join(OUT_DIR, "model.pt")))
@@ -235,8 +235,43 @@ def test_model():
         print(f"#Total Tests: {test_num}, #Correct Tests: {correct_num}")
         print(f"ACC on test set: {correct_num/test_num}")
 
+def store_tensor():
+    """使用训练好的模型"""
+    # 创建模型实例，加载训练好的状态，然后切换到验证模式
+    model = MyModel().to(device)
+    model.load_state_dict(load_tensor(os.path.join(OUT_DIR, "model.pt")))
+    model.eval()
 
-def eval_model():
+    valid_input=True
+    # 询问图片路径，并显示所有可能是人脸的区域
+    while valid_input:
+        try:
+            image_path = input("Image path: ")
+            if not image_path:
+                continue
+            # 构建输入
+            with Image.open(image_path) as img_original: # 加载原始图片
+                sw, sh = img_original.size # 原始图片大小
+                img = resize_image(img_original) # 缩放图片
+                img_output = img_original.copy() # 复制图片，用于后面添加标记
+                tensor_in = image_to_tensor(img)
+            # 预测输出
+            cls_result = model(tensor_in.unsqueeze(0).to(device))[-2][0]
+            
+            # Feature vector shape: (32, 128) -> features of top 32 possible regions
+            face_feature = model(tensor_in.unsqueeze(0).to(device))[-1][0]
+            face_feature = torch.mean(face_feature, dim=0)
+            face_feature /= torch.sum(face_feature)
+            #print(face_feature.shape, face_feature, torch.sum(face_feature))
+            torch.save(face_feature, './out/run1/face_feature')
+            print(f"saved to ./out/run1")
+            print()
+            valid_input=False
+
+        except Exception as e:
+            print("error:", e)
+
+def eval_model_classifier():
     """使用训练好的模型"""
     # 创建模型实例，加载训练好的状态，然后切换到验证模式
     model = MyModel().to(device)
@@ -258,12 +293,7 @@ def eval_model():
             # 预测输出
             cls_result = model(tensor_in.unsqueeze(0).to(device))[-2][0]
             
-            # Feature vector shape: (32, 128) -> features of top 32 possible regions
-            face_feature = model(tensor_in.unsqueeze(0).to(device))[-1][0]
-            face_feature = torch.mean(face_feature, dim=0)
-            face_feature /= torch.sum(face_feature)
-            # print(face_feature.shape, face_feature, torch.sum(face_feature))
-            
+            valid_index=0
             # 合并重叠的结果区域, 结果是 [ [标签列表, 合并后的区域], ... ]
             final_result = []
             for label, box in cls_result:
@@ -275,11 +305,14 @@ def eval_model():
                         break
                 else:
                     final_result.append(([label], box))
+
+
             # 合并标签 (重叠区域的标签中数量最多的分类为最终分类)
             for index in range(len(final_result)):
                 labels, box = final_result[index]
                 final_label = Counter(labels).most_common(1)[0][0]
                 final_result[index] = (final_label, box)
+            
             # 标记在图片上
             draw = ImageDraw.Draw(img_output)
             for label, box in final_result:
@@ -298,6 +331,147 @@ def eval_model():
             print()
         except Exception as e:
             print("error:", e)
+
+
+def eval_model_authentication():
+    """使用训练好的模型"""
+    # 创建模型实例，加载训练好的状态，然后切换到验证模式
+    model = MyModel().to(device)
+    model.load_state_dict(load_tensor(os.path.join(OUT_DIR, "model.pt")))
+    model.eval()
+
+    
+    # 询问图片路径，并显示所有可能是人脸的区域
+    while True :
+        try:
+            image_path = input("Image path: ")
+            if not image_path:
+                continue
+            # 构建输入
+            with Image.open(image_path) as img_original: # 加载原始图片
+                sw, sh = img_original.size # 原始图片大小
+                img = resize_image(img_original) # 缩放图片
+                img_output = img_original.copy() # 复制图片，用于后面添加标记
+                tensor_in = image_to_tensor(img)
+            # 预测输出
+            cls_result = model(tensor_in.unsqueeze(0).to(device))[-2][0]
+            
+
+            # Feature vector shape: (32, 128) -> features of top 32 possible regions
+            face_feature = model(tensor_in.unsqueeze(0).to(device))[-1][0]
+            face_feature = torch.mean(face_feature, dim=0)
+            face_feature /= torch.sum(face_feature)
+            #print(face_feature.shape, face_feature, torch.sum(face_feature))
+            
+            default_feature=torch.load("./out/run1/face_feature")
+            score=torch.dot(face_feature, default_feature)
+            print("similarity score:")
+            print(score)
+            if(score>AUTHENTICATION_TRESHOLD):
+                print("authorized person")
+            else:
+                print("unauthorized person")
+            print("score:")
+            print(score)
+            
+        except Exception as e:
+            print("error:", e)
+
+def test_model_authentication():
+    """test the classification accuracy"""
+    model = MyModel().to(device)
+    model.load_state_dict(load_tensor(os.path.join(OUT_DIR, "model.pt")))
+    model.eval()
+
+    n_classes = len(CLASSES) +1   # others are omitted
+    confmat = np.zeros((n_classes, n_classes), dtype=int)
+    confmat2 = np.zeros((n_classes, n_classes), dtype=int)
+    accmat_total =np.zeros((n_classes), dtype=int)
+    accmat_correct =np.zeros((n_classes), dtype=int)
+    accmat_false_positive_correct =np.zeros((n_classes), dtype=int)
+    accmat_rate =np.zeros((n_classes), dtype=float)
+
+    test_images_file = open(os.path.join(OUT_DIR, "test_images.txt"))
+
+    with  open(os.path.join(OUT_DIR, "test_authen_images.txt"), "w") as f:
+        for image_path in test_images_file.readlines():
+            f.write(image_path)
+
+        file_name_list = os.listdir("./dataset/stranger/stranger_data")
+        file_name_new_list=[]
+        for index in range(len(file_name_list)):
+                if("wg" not in file_name_list[index]):
+                    file_name_new_list.append("./dataset/stranger/stranger_data/"+file_name_list[index])
+        file_name = str(file_name_new_list)
+        file_name = file_name.replace("[", "").replace("]", "").replace("'", "").replace(",", "\n").replace(" ", "")
+        f.write(file_name)
+
+    test_images_file_authentication =open(os.path.join(OUT_DIR, "test_authen_images.txt"))
+    test_images_list=test_images_file_authentication.readlines()
+    for image_path in test_images_list:
+        image_path = image_path.strip()
+        image_name = os.path.basename(image_path)
+        real_cls = image_name.split('.')[0]
+        real_cls = real_cls.split('_')[0]
+        if not image_path:
+            continue
+        
+        with Image.open(image_path) as img_original: # 加载原始图片
+            img = resize_image(img_original) # 缩放图片
+            tensor_in = image_to_tensor(img)
+
+        #print(image_path)
+        #print(image_name)
+        #print(confmat2)
+        face_feature = model(tensor_in.unsqueeze(0).to(device))[-1][0]
+        face_feature = torch.mean(face_feature, dim=0)
+        face_feature /= torch.sum(face_feature)
+
+        for image_path_testall in test_images_list: 
+            image_path_testall = image_path_testall.strip()
+            image_name_testall = os.path.basename(image_path_testall)
+            testall_cls = image_name_testall.split('.')[0]
+            testall_cls = testall_cls.split('_')[0]
+            if not image_path_testall:
+                continue
+            
+            with Image.open(image_path_testall) as img_original_testall: # 加载原始图片
+                img_testall = resize_image(img_original_testall) # 缩放图片
+                tensor_in2 = image_to_tensor(img_testall)
+
+            face_feature2 = model(tensor_in2.unsqueeze(0).to(device))[-1][0]
+            face_feature2 = torch.mean(face_feature2, dim=0)
+            face_feature2 /= torch.sum(face_feature2)
+     
+            score=torch.dot(face_feature, face_feature2)
+            accmat_total[int(real_cls)-1] +=1
+            if(score>AUTHENTICATION_TRESHOLD and testall_cls!=real_cls ):
+                confmat[int(real_cls)-1, int(testall_cls)-1] += 1
+                accmat_false_positive_correct[int(real_cls)-1] +=1
+            elif(score < AUTHENTICATION_TRESHOLD and testall_cls == real_cls):
+                confmat2[int(real_cls)-1, int(testall_cls)-1] += 1
+            else:
+                accmat_correct[int(real_cls)-1] +=1
+                
+
+    test_images_file_authentication.close()
+    test_metrics_file = os.path.join(OUT_DIR, "test_authentication.rpt")
+    mat_rate =accmat_correct/accmat_total
+    with open(test_metrics_file, 'a+') as outputfile:
+        mat_rate =accmat_false_positive_correct/accmat_total
+        print("false-positive rate of each owner:", file=outputfile)
+        print(mat_rate , file=outputfile)
+        mat_rate =accmat_correct/accmat_total
+        print("correct prediction rate of each owner:", file=outputfile)
+        print(mat_rate , file=outputfile)
+        print("false-positive distrbution of each owner:", file=outputfile)
+        print(confmat, file=outputfile)
+        print("true-negtive distrbution of each owner:", file=outputfile)
+        print(confmat2, file=outputfile)
+        print(accmat_false_positive_correct, file=outputfile)
+        print(accmat_correct , file=outputfile)
+        print(accmat_total , file=outputfile)
+
 
 def main():
     """主函数"""
@@ -318,10 +492,16 @@ def main():
         prepare()
     elif operation == "train":
         train()
+    elif operation == "store_owner_picture":
+        store_tensor()
     elif operation == "eval":
-        eval_model()
+        eval_model_classifier()
+    elif operation == "eval_authentication":
+        eval_model_authentication()
     elif operation == "test":
-        test_model()
+        test_model_classifier()
+    elif operation == "test_authentication":
+        test_model_authentication()
     else:
         raise ValueError(f"Unsupported operation: {operation}")
 

@@ -6,7 +6,8 @@ Group members: Bo Liang, Xinming Wei and Chucai Wang.
 ## Getting Started
 
 ### Dataset
-You can find our dataset at [dataset link](https://disk.pku.edu.cn:443/link/5986AA7536C91C91935EE3273B58B548).
+
+You can find our dataset at [dataset link](https://disk.pku.edu.cn/link/5986AA7536C91C91935EE3273B58B548).
 
 ### Dataset Preparation
 Put the thermal images (.png) and corresponding labels (.xml) under `dataset/figure` and `dataset/label` respectively. The image/label pair should be named like 3.45.png/xml, where ‘3’ denotes the category and ‘45’ denotes the index.
@@ -28,5 +29,12 @@ python main.py train
 python main.py eval
 # Evaluate on the test set and return acc. metrics (confuse matrix, overall acc.)
 python main.py test
+# Evaluate the authentication tasks and get the false-positive rate from the ./out/run1/test_authentication.rpt
+python main.py test_authentication
+
+# use the device in practice, store a device owner picture
+python main.py store_owner_picture
+# use the device in practice, judge whether an input picture is authorized to the device
+python main.py eval_authentication
 ```
 
