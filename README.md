@@ -5,6 +5,9 @@ Group members: Bo Liang, Xinming Wei and Chucai Wang.
 
 ## Getting Started
 
+### Dataset
+You can find our dataset at [dataset link](https://disk.pku.edu.cn:443/link/5986AA7536C91C91935EE3273B58B548).
+
 ### Dataset Preparation
 Put the thermal images (.png) and corresponding labels (.xml) under `dataset/figure` and `dataset/label` respectively. The image/label pair should be named like 3.45.png/xml, where ‘3’ denotes the category and ‘45’ denotes the index.
 
